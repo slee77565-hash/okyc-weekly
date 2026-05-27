@@ -123,6 +123,18 @@ body{font-family:'Malgun Gothic','맑은 고딕','Segoe UI',sans-serif;backgroun
 .img-modal-close{position:absolute;top:16px;right:20px;color:#fff;font-size:28px;cursor:pointer;background:none;border:none;line-height:1}
 /* ── 설명 토스트 ── */
 .toast{position:fixed;bottom:20px;right:20px;padding:10px 18px;border-radius:8px;font-size:12px;font-weight:500;color:#fff;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.2);transition:all .3s}
+/* ── 총괄표 영어 편집 ── */
+.ov-en-edit{width:100%;border:1px solid transparent;border-radius:4px;padding:3px 5px;font-size:11px;font-family:inherit;color:var(--text);background:transparent;resize:none;line-height:1.45;min-height:28px;transition:all .15s;display:block}
+.ov-en-edit:hover{border-color:var(--border);background:#f8f9fa}
+.ov-en-edit:focus{outline:none;border-color:var(--blue);background:#fff;box-shadow:0 0 0 2px rgba(46,117,182,.1)}
+.ov-en-note{width:100%;border:1px solid transparent;border-radius:3px;padding:2px 5px;font-size:10px;font-family:inherit;color:var(--muted);background:transparent;transition:all .15s;display:block;margin-top:2px}
+.ov-en-note:hover{border-color:var(--border);background:#f8f9fa}
+.ov-en-note:focus{outline:none;border-color:var(--blue);background:#fff}
+.ov-next-en{font-size:11px;color:var(--muted);padding:1px 0;line-height:1.45;display:flex;align-items:flex-start;gap:5px}
+.ov-next-en::before{content:'▸';color:var(--hint);flex-shrink:0;font-size:10px;margin-top:6px}
+.retrans-btn{padding:4px 11px;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;border:none;background:rgba(255,255,255,.12);color:rgba(255,255,255,.8);transition:all .15s;display:none}
+.retrans-btn:hover{background:rgba(255,255,255,.22)}
+.ov-edit-hint{font-size:10px;color:var(--hint);font-style:italic;margin-top:4px;padding:0 13px 8px}
 </style>
 </head>
 <body>
@@ -163,6 +175,7 @@ body{font-family:'Malgun Gothic','맑은 고딕','Segoe UI',sans-serif;backgroun
           <button class="lang-btn on" id="btnKO" onclick="setLang('ko')">한국어</button>
           <button class="lang-btn" id="btnEN" onclick="setLang('en')">English</button>
         </div>
+        <button class="retrans-btn" id="retransBtn" onclick="retranslateAll()">🔄 다시 번역</button>
         <button class="save-btn-hdr" onclick="doSave()" id="saveHdrBtn">💾 저장</button>
         <div class="sync-indicator"><span class="sync-dot" id="gsDot"></span><span id="gsTxt">로컬 모드</span></div>
       </div>
@@ -231,7 +244,45 @@ setInterval(async function(){
     if(a){ if(a.dataset.i==='ov')renderOv(); else if(a.dataset.i)renderDept(parseInt(a.dataset.i)); } }
 },30000);
 
-/* ═══ 다국어 ═══ */
+/* ═══ 자동번역 (MyMemory API - 무료) ═══ */
+async function translateText(text){
+  if(!text||!text.trim())return'';
+  try{
+    const res=await fetch('https://api.mymemory.translated.net/get?q='+encodeURIComponent(text.trim())+'&langpair=ko|en');
+    const data=await res.json();
+    return data.responseData?.translatedText||text;
+  }catch(e){return text;}
+}
+async function translateAll(force){
+  const wd=getWD();
+  const jobs=[];
+  wd.teams.forEach((td)=>{
+    [...td.this_week,...td.next_week].forEach(r=>{
+      if(r.work&&(force||!r.work_en))
+        jobs.push(translateText(r.work).then(t=>{r.work_en=t;}));
+      if(r.note&&(force||!r.note_en))
+        jobs.push(translateText(r.note).then(t=>{r.note_en=t;}));
+    });
+  });
+  if(!jobs.length)return;
+  await Promise.all(jobs);
+  saveLocal();
+}
+async function retranslateAll(){
+  collectOvEdits();
+  const btn=document.getElementById('retransBtn');
+  if(btn){btn.textContent='🔄 번역 중...';btn.disabled=true;}
+  const wd=getWD();
+  wd.teams.forEach(td=>{
+    [...td.this_week,...td.next_week].forEach(r=>{r.work_en='';r.note_en='';});
+  });
+  await translateAll(true);
+  if(btn){btn.textContent='🔄 다시 번역';btn.disabled=false;}
+  renderOv();
+  showToast('번역 완료',true);
+}
+
+
 const I18N={
   ko:{
     title:'주간업무보고',sub:'오일허브코리아여수 (OKYC)',wkLbl:'주차',
@@ -330,7 +381,8 @@ function openImgModal(src){
 function closeImgModal(){document.getElementById('imgModal').classList.remove('show');}
 
 /* ── 언어 전환 ── */
-function setLang(lang){
+async function setLang(lang){
+  if(lang==='en') collectOvEdits();
   LANG=lang;
   document.getElementById('btnKO').classList.toggle('on',lang==='ko');
   document.getElementById('btnEN').classList.toggle('on',lang==='en');
@@ -339,11 +391,19 @@ function setLang(lang){
   document.getElementById('wkLbl').textContent=T().wkLbl;
   document.getElementById('nowBadge').textContent=T().nowBadge;
   document.getElementById('saveHdrBtn').textContent=T().save;
+  const rb=document.getElementById('retransBtn');
+  if(rb) rb.style.display=lang==='en'?'inline':'none';
   buildTabs();
   const active=document.querySelector('.tab.on');
   if(active){
-    if(active.dataset.i==='ov') renderOv();
-    else if(active.dataset.i)   renderDept(parseInt(active.dataset.i));
+    if(active.dataset.i==='ov'){
+      if(lang==='en'){
+        showToast('번역 중...', true);
+        await translateAll(false);
+        renderOv();
+        showToast('번역 완료 — 총괄표에서 수정 가능합니다', true);
+      } else renderOv();
+    } else if(active.dataset.i) renderDept(parseInt(active.dataset.i));
   }
   saveLocal();
 }
@@ -381,7 +441,14 @@ function buildTabs(){
       collectInputs();
       document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on')); b.classList.add('on');
       document.querySelectorAll('.panel').forEach(x=>x.classList.remove('on'));
-      if(tab.id==='ov'){document.getElementById('p-ov').classList.add('on');renderOv();}
+      if(tab.id==='ov'){
+        document.getElementById('p-ov').classList.add('on');
+        if(LANG==='en'){
+          translateAll(false).then(()=>renderOv());
+        } else {
+          renderOv();
+        }
+      }
       else{const i=parseInt(tab.id);document.getElementById('p-'+i).classList.add('on');renderDept(i);}
     };
     bar.appendChild(b);
@@ -395,13 +462,31 @@ function buildAllPanels(){
   renderOv();
 }
 
+/* ── 총괄표 영어 편집 수집 ── */
+function collectOvEdits(){
+  if(LANG!=='en')return;
+  const wd=getWD();
+  document.querySelectorAll('.ov-en-edit,.ov-en-note').forEach(el=>{
+    const ti=parseInt(el.dataset.ti);
+    const ri=parseInt(el.dataset.ri);
+    const sec=el.dataset.sec;
+    const fld=el.dataset.field+'_en';
+    const arr=sec==='tw'?wd.teams[ti].this_week:wd.teams[ti].next_week;
+    if(arr&&arr[ri])arr[ri][fld]=el.value;
+  });
+}
+
 /* ════ 총괄표 렌더링 ════ */
 function renderOv(){
+  collectOvEdits();
   const wd=getWD(); const tx=T(); const el=document.getElementById('p-ov'); if(!el)return;
   const range=getWeekRange(YEAR,WEEK);
+  const isEN=LANG==='en';
 
   let html=`<div class="ov-meta"><div class="ov-week">${YEAR} W${String(WEEK).padStart(2,'0')}</div>
-    <div class="ov-period">${range}</div></div><div class="ov-grid">`;
+    <div class="ov-period">${range}</div></div>`;
+  if(isEN) html+=`<div style="font-size:11px;color:var(--blue);background:#EFF6FF;border:1px solid #bfdbfe;border-radius:6px;padding:7px 13px;margin-bottom:10px;display:flex;align-items:center;gap:7px">✏️ <span>English mode — you can edit translations directly in each card below, then click <strong>Save</strong>.</span></div>`;
+  html+=`<div class="ov-grid">`;
 
   TEAMS.forEach((team,ti)=>{
     const td=wd.teams[ti];
@@ -415,25 +500,56 @@ function renderOv(){
       </div>
       <div class="ov-sec"><div class="ov-stitle">📌 ${tx.thisWk}</div>`;
     if(!vThis.length){html+=`<div class="ov-nodata">${tx.noData}</div>`;}
-    else vThis.forEach((r)=>{
+    else vThis.forEach((r,ri_raw)=>{
+      const ri=td.this_week.indexOf(r);
       const c=pc(r.pct);
-      html+=`<div class="ov-item">
-        <div class="ov-itext">${esc(r.work)}${r.note?`<span style="color:var(--muted);font-size:10px"> · ${esc(r.note)}</span>`:''}${r.img?`<img src="${r.img}" class="ov-img-thumb" onclick="openImgModal('${r.img}')" alt="첨부">`:''}
-        </div>
-        <div class="ov-pbar"><div class="ov-pbar-track"><div class="ov-pbar-fill" style="width:${Math.min(100,r.pct)}%;background:${c}"></div></div></div>
-        <div class="ov-pct" style="color:${c}">${r.pct}%</div>
-      </div>`;
+      if(isEN){
+        html+=`<div class="ov-item">
+          <div class="ov-itext" style="flex-direction:column;gap:2px">
+            <textarea class="ov-en-edit" data-ti="${ti}" data-ri="${ri}" data-sec="tw" data-field="work" rows="2">${esc(r.work_en||'')}</textarea>
+            ${r.note?`<input class="ov-en-note" type="text" data-ti="${ti}" data-ri="${ri}" data-sec="tw" data-field="note" placeholder="Remarks" value="${esc(r.note_en||'')}">`:''}
+            ${r.img?`<img src="${r.img}" class="ov-img-thumb" onclick="openImgModal('${r.img}')" alt="첨부">`:''}
+          </div>
+          <div class="ov-pbar"><div class="ov-pbar-track"><div class="ov-pbar-fill" style="width:${Math.min(100,r.pct)}%;background:${c}"></div></div></div>
+          <div class="ov-pct" style="color:${c}">${r.pct}%</div>
+        </div>`;
+      } else {
+        html+=`<div class="ov-item">
+          <div class="ov-itext">${esc(r.work)}${r.note?`<span style="color:var(--muted);font-size:10px"> · ${esc(r.note)}</span>`:''}${r.img?`<img src="${r.img}" class="ov-img-thumb" onclick="openImgModal('${r.img}')" alt="첨부">`:''}
+          </div>
+          <div class="ov-pbar"><div class="ov-pbar-track"><div class="ov-pbar-fill" style="width:${Math.min(100,r.pct)}%;background:${c}"></div></div></div>
+          <div class="ov-pct" style="color:${c}">${r.pct}%</div>
+        </div>`;
+      }
     });
     html+=`</div><div class="ov-sec"><div class="ov-stitle">📅 ${tx.nextWk}</div>`;
     if(!vNext.length){html+=`<div class="ov-nodata">${tx.noData}</div>`;}
     else vNext.forEach((r)=>{
-      html+=`<div class="ov-next">${esc(r.work)}${r.note?` <span style="color:var(--hint)">(${esc(r.note)})</span>`:''}${r.img?` <img src="${r.img}" class="ov-img-thumb" onclick="openImgModal('${r.img}')" style="width:32px;height:24px" alt="첨부">`:''}
-      </div>`;
+      const ri=td.next_week.indexOf(r);
+      if(isEN){
+        html+=`<div class="ov-next-en">
+          <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <textarea class="ov-en-edit" data-ti="${ti}" data-ri="${ri}" data-sec="nw" data-field="work" rows="1">${esc(r.work_en||'')}</textarea>
+            ${r.note?`<input class="ov-en-note" type="text" data-ti="${ti}" data-ri="${ri}" data-sec="nw" data-field="note" placeholder="Remarks" value="${esc(r.note_en||'')}">`:''}
+            ${r.img?`<img src="${r.img}" class="ov-img-thumb" onclick="openImgModal('${r.img}')" style="width:32px;height:24px" alt="첨부">`:''}
+          </div>
+        </div>`;
+      } else {
+        html+=`<div class="ov-next">${esc(r.work)}${r.note?` <span style="color:var(--hint)">(${esc(r.note)})</span>`:''}${r.img?` <img src="${r.img}" class="ov-img-thumb" onclick="openImgModal('${r.img}')" style="width:32px;height:24px" alt="첨부">`:''}
+        </div>`;
+      }
     });
     html+=`</div></div>`;
   });
   html+=`</div>`;
   el.innerHTML=html;
+
+  // 편집 시 자동저장 예약
+  if(isEN){
+    el.querySelectorAll('.ov-en-edit,.ov-en-note').forEach(inp=>inp.addEventListener('input',()=>{
+      collectOvEdits(); saveLocal();
+    }));
+  }
 }
 
 function renderDept(idx){
@@ -632,7 +748,7 @@ function schedSave(idx){
   },1500);
 }
 function doSave(){
-  collectInputs(); const ok=saveLocal();
+  collectOvEdits(); collectInputs(); const ok=saveLocal();
   const btn=document.getElementById('saveHdrBtn');
   if(btn){btn.textContent=ok?T().saved:T().save; setTimeout(()=>btn.textContent=T().save,2000);}
   showToast(ok?'저장 완료':' 저장 실패',ok);
