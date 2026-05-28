@@ -221,10 +221,12 @@ async function loadFromSheets(){
   try{
     const res=await fetch(SCRIPT_URL+'?key='+SHEET_KEY,{redirect:'follow'});
     const json=await res.json();
-    if(json.status==='ok'&&json.data&&json.data!=='{}'){
-      const p=JSON.parse(json.data);
-      if(p.DATA) DATA=p.DATA; if(p.LANG) LANG=p.LANG;
-      if(p.WEEK) WEEK=p.WEEK; if(p.YEAR) YEAR=p.YEAR;
+    if(json.status==='ok'){
+      if(json.data&&json.data!=='{}'){
+        const p=JSON.parse(json.data);
+        if(p.DATA) DATA=p.DATA; if(p.LANG) LANG=p.LANG;
+        if(p.WEEK) WEEK=p.WEEK; if(p.YEAR) YEAR=p.YEAR;
+      }
       setSyncBadge('saved'); return true;
     }
   }catch(e){ setSyncBadge('error'); }
