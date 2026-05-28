@@ -124,14 +124,21 @@ body{font-family:'Malgun Gothic','맑은 고딕','Segoe UI',sans-serif;backgroun
 /* ── 설명 토스트 ── */
 .toast{position:fixed;bottom:20px;right:20px;padding:10px 18px;border-radius:8px;font-size:12px;font-weight:500;color:#fff;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.2);transition:all .3s}
 /* ── 총괄표 영어 편집 ── */
-.ov-en-edit{width:100%;border:1px solid transparent;border-radius:4px;padding:3px 5px;font-size:11px;font-family:inherit;color:var(--text);background:transparent;resize:none;line-height:1.45;min-height:28px;transition:all .15s;display:block}
+.ov-en-edit{width:100%;border:1px solid transparent;border-radius:4px;padding:3px 5px;font-size:11px;font-family:inherit;color:var(--text);background:transparent;resize:none;line-height:1.5;min-height:22px;height:auto;overflow:hidden;transition:border-color .15s,background .15s;display:block;word-break:break-word;white-space:pre-wrap}
 .ov-en-edit:hover{border-color:var(--border);background:#f8f9fa}
 .ov-en-edit:focus{outline:none;border-color:var(--blue);background:#fff;box-shadow:0 0 0 2px rgba(46,117,182,.1)}
-.ov-en-note{width:100%;border:1px solid transparent;border-radius:3px;padding:2px 5px;font-size:10px;font-family:inherit;color:var(--muted);background:transparent;transition:all .15s;display:block;margin-top:2px}
+.ov-en-note{width:100%;border:1px solid transparent;border-radius:3px;padding:2px 5px;font-size:10px;font-family:inherit;color:var(--muted);background:transparent;transition:all .15s;display:block;margin-top:2px;word-break:break-word}
 .ov-en-note:hover{border-color:var(--border);background:#f8f9fa}
 .ov-en-note:focus{outline:none;border-color:var(--blue);background:#fff}
-.ov-next-en{font-size:11px;color:var(--muted);padding:1px 0;line-height:1.45;display:flex;align-items:flex-start;gap:5px}
-.ov-next-en::before{content:'▸';color:var(--hint);flex-shrink:0;font-size:10px;margin-top:6px}
+.ov-next-en{font-size:11px;color:var(--muted);padding:1px 0;line-height:1.5;display:flex;align-items:flex-start;gap:5px;word-break:break-word}
+.ov-next-en::before{content:'▸';color:var(--hint);flex-shrink:0;font-size:10px;margin-top:4px}
+/* 인쇄 시 */
+@media print{
+  .ov-en-edit,.ov-en-note{border:none!important;background:transparent!important;box-shadow:none!important;overflow:visible!important;height:auto!important;white-space:pre-wrap!important;word-break:break-word!important}
+  .ov-card{break-inside:avoid;page-break-inside:avoid}
+  .ov-item{break-inside:avoid}
+  .retrans-btn,.lang-toggle,.week-box,.save-btn-hdr,.sync-indicator{display:none!important}
+}
 .retrans-btn{padding:4px 11px;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;border:none;background:rgba(255,255,255,.12);color:rgba(255,255,255,.8);transition:all .15s;display:none}
 .retrans-btn:hover{background:rgba(255,255,255,.22)}
 .ov-edit-hint{font-size:10px;color:var(--hint);font-style:italic;margin-top:4px;padding:0 13px 8px}
@@ -239,8 +246,23 @@ function setSyncBadge(s){
             error:{c:'#ff9999',t:'저장 실패'},local:{c:'rgba(255,255,255,.35)',t:'로컬 저장 모드'}};
   const r=m[s]||m.local; d.style.background=r.c; t.textContent=r.t;
 }
+/* ── 입력 중 감지 ── */
+let userTyping=false;
+let typingTimer=null;
+document.addEventListener('focusin',e=>{
+  if(e.target.matches('textarea,input[type=text],input[type=number]')) userTyping=true;
+});
+document.addEventListener('focusout',e=>{
+  if(e.target.matches('textarea,input[type=text],input[type=number]')){
+    if(typingTimer)clearTimeout(typingTimer);
+    typingTimer=setTimeout(()=>{ userTyping=false; },3000);
+  }
+});
+
 setInterval(async function(){
-  if(!isConfigured())return; setSyncBadge('syncing');
+  if(!isConfigured())return;
+  if(userTyping)return; // 입력 중이면 재렌더링 건너뜀
+  setSyncBadge('syncing');
   const ok=await loadFromSheets();
   if(ok){ refreshWeekUI(); const a=document.querySelector('.tab.on');
     if(a){ if(a.dataset.i==='ov')renderOv(); else if(a.dataset.i)renderDept(parseInt(a.dataset.i)); } }
@@ -464,6 +486,18 @@ function buildAllPanels(){
   renderOv();
 }
 
+/* ── textarea 자동 높이 ── */
+function autoResize(el){
+  el.style.height='auto';
+  el.style.height=el.scrollHeight+'px';
+}
+function applyAutoResize(container){
+  container.querySelectorAll('.ov-en-edit').forEach(el=>{
+    autoResize(el);
+    el.addEventListener('input',()=>autoResize(el));
+  });
+}
+
 /* ── 총괄표 영어 편집 수집 ── */
 function collectOvEdits(){
   if(LANG!=='en')return;
@@ -551,6 +585,7 @@ function renderOv(){
     el.querySelectorAll('.ov-en-edit,.ov-en-note').forEach(inp=>inp.addEventListener('input',()=>{
       collectOvEdits(); saveLocal();
     }));
+    applyAutoResize(el);
   }
 }
 
