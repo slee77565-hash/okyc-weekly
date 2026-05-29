@@ -127,17 +127,31 @@ body{font-family:'Malgun Gothic','맑은 고딕','Segoe UI',sans-serif;backgroun
 .ov-en-edit{width:100%;border:1px solid transparent;border-radius:4px;padding:3px 5px;font-size:11px;font-family:inherit;color:var(--text);background:transparent;resize:none;line-height:1.5;min-height:22px;height:auto;overflow:hidden;transition:border-color .15s,background .15s;display:block;word-break:break-word;white-space:pre-wrap}
 .ov-en-edit:hover{border-color:var(--border);background:#f8f9fa}
 .ov-en-edit:focus{outline:none;border-color:var(--blue);background:#fff;box-shadow:0 0 0 2px rgba(46,117,182,.1)}
-.ov-en-note{width:100%;border:1px solid transparent;border-radius:3px;padding:2px 5px;font-size:10px;font-family:inherit;color:var(--muted);background:transparent;transition:all .15s;display:block;margin-top:2px;word-break:break-word}
+.ov-en-note{width:100%;border:1px solid transparent;border-radius:3px;padding:2px 5px;font-size:10px;font-family:inherit;color:var(--muted);background:transparent;transition:all .15s;display:block;margin-top:2px;word-break:break-word;box-sizing:border-box}
 .ov-en-note:hover{border-color:var(--border);background:#f8f9fa}
 .ov-en-note:focus{outline:none;border-color:var(--blue);background:#fff}
 .ov-next-en{font-size:11px;color:var(--muted);padding:1px 0;line-height:1.5;display:flex;align-items:flex-start;gap:5px;word-break:break-word}
 .ov-next-en::before{content:'▸';color:var(--hint);flex-shrink:0;font-size:10px;margin-top:4px}
 /* 인쇄 시 */
 @media print{
-  .ov-en-edit,.ov-en-note{border:none!important;background:transparent!important;box-shadow:none!important;overflow:visible!important;height:auto!important;white-space:pre-wrap!important;word-break:break-word!important}
-  .ov-card{break-inside:avoid;page-break-inside:avoid}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .hdr,.tabs,.retrans-btn,.lang-toggle,.week-box,.save-btn-hdr,.sync-indicator,
+  .del-btn,.add-btn,.img-upload-btn,.img-del,.sec-hdr button,
+  .ov-edit-hint,.noticeBanner{display:none!important}
+  .body{padding:4px!important}
+  .ov-en-edit,.ov-en-note{
+    border:none!important;background:transparent!important;
+    box-shadow:none!important;overflow:visible!important;
+    height:auto!important;min-height:0!important;
+    white-space:pre-wrap!important;word-break:break-word!important;
+    resize:none!important;
+  }
+  textarea{resize:none!important;overflow:visible!important;height:auto!important}
+  .ov-card{break-inside:avoid;page-break-inside:avoid;border:1px solid #dee2e6!important}
   .ov-item{break-inside:avoid}
-  .retrans-btn,.lang-toggle,.week-box,.save-btn-hdr,.sync-indicator{display:none!important}
+  .ov-grid{grid-template-columns:repeat(3,1fr)!important}
+  .pct-bar,.pct-track,.pct-fill{display:none!important}
+  .ov-itext{flex:1!important}
 }
 .retrans-btn{padding:4px 11px;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;border:none;background:rgba(255,255,255,.12);color:rgba(255,255,255,.8);transition:all .15s;display:none}
 .retrans-btn:hover{background:rgba(255,255,255,.22)}
@@ -231,7 +245,8 @@ async function loadFromSheets(){
     if(json.status==='ok'){
       if(json.data&&json.data!=='{}'){
         const p=JSON.parse(json.data);
-        if(p.DATA) DATA=p.DATA; if(p.LANG) LANG=p.LANG;
+        if(p.DATA) DATA=p.DATA;
+        // LANG은 로컬 설정 유지 (시트에서 덮어쓰지 않음)
         if(p.WEEK) WEEK=p.WEEK; if(p.YEAR) YEAR=p.YEAR;
       }
       setSyncBadge('saved'); return true;
@@ -268,13 +283,17 @@ setInterval(async function(){
     if(a){ if(a.dataset.i==='ov')renderOv(); else if(a.dataset.i)renderDept(parseInt(a.dataset.i)); } }
 },30000);
 
-/* ═══ 자동번역 (MyMemory API - 무료) ═══ */
+/* ═══ 자동번역 (Google Translate 무료) ═══ */
 async function translateText(text){
   if(!text||!text.trim())return'';
   try{
-    const res=await fetch('https://api.mymemory.translated.net/get?q='+encodeURIComponent(text.trim())+'&langpair=ko|en');
+    const url='https://translate.googleapis.com/translate_a/single?client=gtx&sl=ko&tl=en&dt=t&q='+encodeURIComponent(text.trim());
+    const res=await fetch(url);
     const data=await res.json();
-    return data.responseData?.translatedText||text;
+    // 응답 구조: [[[번역문,원문,...], ...], ...]
+    const translated=data[0].map(x=>x[0]).filter(Boolean).join('');
+    if(!translated||translated===text.trim())return text;
+    return translated;
   }catch(e){return text;}
 }
 async function translateAll(force){
@@ -690,6 +709,7 @@ function onImgUpload(ti,sec,ri,input){
   if(file.size>2*1024*1024){alert('이미지는 2MB 이하만 첨부 가능합니다.');return;}
   const reader=new FileReader();
   reader.onload=e=>{
+    collectInputs();
     const wd=getWD();
     if(sec==='tw') wd.teams[ti].this_week[ri].img=e.target.result;
     else           wd.teams[ti].next_week[ri].img=e.target.result;
@@ -698,6 +718,7 @@ function onImgUpload(ti,sec,ri,input){
   reader.readAsDataURL(file);
 }
 function delImg(ti,sec,ri){
+  collectInputs();
   const wd=getWD();
   if(sec==='tw') wd.teams[ti].this_week[ri].img='';
   else           wd.teams[ti].next_week[ri].img='';
@@ -757,10 +778,16 @@ function collectInputs(){
         const n=tr.querySelector('.inp-note')?.value||'';
         const pi=tr.querySelector('.pct-inp');
         const ri=parseInt(tr.dataset.ri)||0;
-        // 이미지는 DATA에서 유지
+        // 이미지와 영문 번역본도 DATA에서 유지
         const existing=sec==='tw'?wd.teams[ti].this_week[ri]:wd.teams[ti].next_week[ri];
-        if(sec==='tw') arr.push({work:w,pct:parseInt(pi?.value)||0,note:n,img:(existing&&existing.img)||''});
-        else arr.push({work:w,note:n,img:(existing&&existing.img)||''});
+        if(sec==='tw') arr.push({work:w,pct:parseInt(pi?.value)||0,note:n,
+          img:(existing&&existing.img)||'',
+          work_en:(existing&&existing.work_en)||'',
+          note_en:(existing&&existing.note_en)||''});
+        else arr.push({work:w,note:n,
+          img:(existing&&existing.img)||'',
+          work_en:(existing&&existing.work_en)||'',
+          note_en:(existing&&existing.note_en)||''});
       });
       if(sec==='tw') wd.teams[ti].this_week=arr;
       else wd.teams[ti].next_week=arr;
